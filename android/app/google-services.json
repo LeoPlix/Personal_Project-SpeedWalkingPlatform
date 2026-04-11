@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "562359943408",
+    "project_id": "marchaatletica-b19fa",
+    "storage_bucket": "marchaatletica-b19fa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:562359943408:android:cf6be1100dcc3ca1e54235",
+        "android_client_info": {
+          "package_name": "com.example.marcha"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDCvZFVThDKsAOYc7Y08eVB9CofB5QR1LE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
