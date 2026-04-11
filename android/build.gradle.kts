@@ -1,3 +1,14 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // Necessário para o Firebase
+        classpath("com.google.gms:google-services:4.4.1")
+    }
+}
+
 allprojects {
     repositories {
         google()
@@ -5,16 +16,13 @@ allprojects {
     }
 }
 
-val newBuildDir: Directory =
-    rootProject.layout.buildDirectory
-        .dir("../../build")
-        .get()
-rootProject.layout.buildDirectory.value(newBuildDir)
+// Lógica de build do Flutter simplificada para evitar erros de sintaxe Kotlin
+rootProject.layout.buildDirectory.set(file("${rootProject.projectDir}/../build"))
 
 subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
+    project.layout.buildDirectory.set(file("${rootProject.layout.buildDirectory.get()}/${project.name}"))
 }
+
 subprojects {
     project.evaluationDependsOn(":app")
 }
