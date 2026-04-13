@@ -2,33 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'firebase_options.dart'; //
 
 void main() async {
-  // Garante que o motor do Flutter está iniciado antes de chamar código nativo (Firebase)
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Inicializa o Firebase (na prática, precisas do ficheiro firebase_options.dart gerado pelo FlutterFire)
-  // await Firebase.initializeApp(); 
-  
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const MarchaApp());
 }
 
 class MarchaApp extends StatelessWidget {
   const MarchaApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'App Juízes - Marcha',
-      theme: ThemeData(primarySwatch: Colors.blue),
-      // O StreamBuilder "ouve" o estado do utilizador. 
-      // Se fez login, vai para a prova. Se não, vai para o Login.
+      theme: ThemeData(useMaterial3: true, primarySwatch: Colors.blue),
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
-          if (snapshot.hasData) {
-            return const ProvaScreen(competitionId: 'prova_teste_123');
-          }
+          if (snapshot.hasData) return const ProvaScreen(competitionId: 'prova_teste_123');
           return const LoginScreen();
         },
       ),
@@ -36,49 +27,27 @@ class MarchaApp extends StatelessWidget {
   }
 }
 
-// ==========================================
-// ECRÃ 1: LOGIN DO JUIZ
-// ==========================================
-class LoginScreen extends StatefulWidget {
+// --- ECRÃ DE LOGIN (Simplificado conforme falámos) ---
+class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
-
-  @override
-  State<LoginScreen> createState() => _LoginScreenState();
-}
-
-class _LoginScreenState extends State<LoginScreen> {
-  final _emailCtrl = TextEditingController();
-  final _passCtrl = TextEditingController();
-
-  Future<void> _fazerLogin() async {
-    try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailCtrl.text.trim(),
-        password: _passCtrl.text.trim(),
-      );
-      // Se tiver sucesso, o StreamBuilder no main() muda de ecrã automaticamente!
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro no login: $e')),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final emailCtrl = TextEditingController();
+    final passCtrl = TextEditingController();
     return Scaffold(
-      appBar: AppBar(title: const Text('Acesso Restrito - Juízes')),
+      appBar: AppBar(title: const Text('Login Juízes')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            TextField(controller: _emailCtrl, decoration: const InputDecoration(labelText: 'Email')),
-            TextField(controller: _passCtrl, decoration: const InputDecoration(labelText: 'Password'), obscureText: true),
-            const SizedBox(height: 20),
+            TextField(controller: emailCtrl, decoration: const InputDecoration(labelText: 'Email')),
+            TextField(controller: passCtrl, decoration: const InputDecoration(labelText: 'Password'), obscureText: true),
             ElevatedButton(
-              onPressed: _fazerLogin,
-              child: const Text('Entrar na Prova'),
+              onPressed: () => FirebaseAuth.instance.signInWithEmailAndPassword(
+                email: emailCtrl.text.trim(),
+                password: passCtrl.text.trim(),
+              ),
+              child: const Text('Entrar'),
             )
           ],
         ),
@@ -87,81 +56,98 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// ==========================================
-// ECRÃ 2: LISTA DE ATLETAS E REGISTO DE FALTAS
-// ==========================================
-class ProvaScreen extends StatelessWidget {
+// --- ECRÃ DA PROVA (Com Escalão e Formulário) ---
+class ProvaScreen extends StatefulWidget {
   final String competitionId;
   const ProvaScreen({super.key, required this.competitionId});
+  @override
+  State<ProvaScreen> createState() => _ProvaScreenState();
+}
 
-  // Função core: Registar a falta na base de dados
-  Future<void> _registarFalta(BuildContext context, String atletaId, String tipoFalta) async {
-    final juizAtual = FirebaseAuth.instance.currentUser;
-    if (juizAtual == null) return;
+class _ProvaScreenState extends State<ProvaScreen> {
+  String? _escalao;
+  String? _atletaId;
+  final _tempoCtrl = TextEditingController();
+  final _tipoFaltaCtrl = TextEditingController();
 
-    // Criar um novo documento na coleção 'infractions'
+  Future<void> _submeterFalta() async {
+    if (_atletaId == null || _tempoCtrl.text.isEmpty || _tipoFaltaCtrl.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preencha tudo!')));
+      return;
+    }
+
     await FirebaseFirestore.instance.collection('infractions').add({
-      'competition_id': competitionId,
-      'athlete_id': atletaId,
-      'judge_id': juizAtual.uid, // Regra de segurança: Só o próprio juiz regista com o seu ID
-      'infraction_type': tipoFalta, // Ex: 'flexao_joelho' ou 'contacto_continuo'
-      'timestamp': FieldValue.serverTimestamp(), // Fica registado o segundo exato pelo servidor, não pelo telemóvel
+      'competition_id': widget.competitionId,
+      'judge_id': FirebaseAuth.instance.currentUser?.uid,
+      'athlete_id': _atletaId,
+      'time': _tempoCtrl.text,
+      'type': _tipoFaltaCtrl.text,
+      'timestamp': FieldValue.serverTimestamp(),
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Falta registada com sucesso!'), backgroundColor: Colors.green),
-    );
+    setState(() {
+      _atletaId = null;
+      _tempoCtrl.clear();
+      _tipoFaltaCtrl.clear();
+    });
+    
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Falta Registada!')));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Registo em Pista'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => FirebaseAuth.instance.signOut(), // Faz logout instantâneo
-          )
-        ],
-      ),
-      // O StreamBuilder aqui puxa os atletas em tempo real do Firestore
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('athletes')
-            .where('competition_id', isEqualTo: competitionId)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-
-          final atletas = snapshot.data!.docs;
-
-          return ListView.builder(
-            itemCount: atletas.length,
-            itemBuilder: (context, index) {
-              final atleta = atletas[index];
-              return ListTile(
-                leading: CircleAvatar(child: Text(atleta['bib_number'].toString())),
-                title: Text(atleta['name']),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Botão para falta de Flexão
-                    IconButton(
-                      icon: const Icon(Icons.warning_amber, color: Colors.orange),
-                      onPressed: () => _registarFalta(context, atleta.id, 'flexao'),
-                    ),
-                    // Botão para falta de Contacto
-                    IconButton(
-                      icon: const Icon(Icons.do_not_step, color: Colors.red),
-                      onPressed: () => _registarFalta(context, atleta.id, 'contacto'),
-                    ),
-                  ],
-                ),
-              );
-            },
-          );
-        },
+      appBar: AppBar(title: const Text('Registo em Pista'), actions: [
+        IconButton(icon: const Icon(Icons.logout), onPressed: () => FirebaseAuth.instance.signOut())
+      ]),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            // 1. Escolha do Escalão
+            DropdownButtonFormField<String>(
+              hint: const Text('Escolha o Escalão'),
+              value: _escalao,
+              items: ['Sub-18', 'Sub-20', 'Seniores'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+              onChanged: (val) => setState(() { _escalao = val; _atletaId = null; }),
+            ),
+            const SizedBox(height: 20),
+            
+            // 2. Escolha do Atleta (Dinâmico do Firestore)
+            if (_escalao != null)
+              StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('athletes')
+                    .where('category', isEqualTo: _escalao)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) return const CircularProgressIndicator();
+                  return DropdownButtonFormField<String>(
+                    hint: const Text('Selecione o Atleta'),
+                    value: _atletaId,
+                    items: snapshot.data!.docs.map((doc) {
+                      return DropdownMenuItem(value: doc.id, child: Text("${doc['bib_number']} - ${doc['name']}"));
+                    }).toList(),
+                    onChanged: (val) => setState(() => _atletaId = val),
+                  );
+                },
+              ),
+            
+            const SizedBox(height: 20),
+            
+            // 3. Tempo e Tipo
+            TextField(controller: _tempoCtrl, decoration: const InputDecoration(labelText: 'Tempo da Falta (ex: 01:23:45)', border: OutlineInputBorder())),
+            const SizedBox(height: 10),
+            TextField(controller: _tipoFaltaCtrl, decoration: const InputDecoration(labelText: 'Tipo de Falta (ex: Flexão)', border: OutlineInputBorder())),
+            
+            const SizedBox(height: 30),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+              onPressed: _submeterFalta, 
+              child: const Text('SUBMETER REGISTO'),
+            )
+          ],
+        ),
       ),
     );
   }
