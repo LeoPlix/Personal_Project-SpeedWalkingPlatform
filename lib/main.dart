@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'firebase_options.dart'; //
+import 'package:intl/intl.dart'; 
+import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,11 +16,14 @@ class MarchaApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      theme: ThemeData(useMaterial3: true, primarySwatch: Colors.blue),
+      title: 'Race Walking System',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(primarySwatch: Colors.red, useMaterial3: true),
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
-          if (snapshot.hasData) return const ProvaScreen(competitionId: 'prova_teste_123');
+          if (snapshot.connectionState == ConnectionState.waiting) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          if (snapshot.hasData) return const MainNavigation();
           return const LoginScreen();
         },
       ),
@@ -27,28 +31,35 @@ class MarchaApp extends StatelessWidget {
   }
 }
 
-// --- ECRÃ DE LOGIN (Simplificado conforme falámos) ---
-class LoginScreen extends StatelessWidget {
+// --- LOGIN ---
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
   @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _emailCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  Future<void> _login() async {
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(email: _emailCtrl.text.trim(), password: _passCtrl.text.trim());
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red));
+    }
+  }
+  @override
   Widget build(BuildContext context) {
-    final emailCtrl = TextEditingController();
-    final passCtrl = TextEditingController();
     return Scaffold(
-      appBar: AppBar(title: const Text('Login Juízes')),
+      appBar: AppBar(title: const Text('R.F.E.A. System - LOGIN')),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(20.0),
         child: Column(
           children: [
-            TextField(controller: emailCtrl, decoration: const InputDecoration(labelText: 'Email')),
-            TextField(controller: passCtrl, decoration: const InputDecoration(labelText: 'Password'), obscureText: true),
-            ElevatedButton(
-              onPressed: () => FirebaseAuth.instance.signInWithEmailAndPassword(
-                email: emailCtrl.text.trim(),
-                password: passCtrl.text.trim(),
-              ),
-              child: const Text('Entrar'),
-            )
+            TextField(controller: _emailCtrl, decoration: const InputDecoration(labelText: 'USER NAME')),
+            TextField(controller: _passCtrl, decoration: const InputDecoration(labelText: 'PASSWORD'), obscureText: true),
+            const SizedBox(height: 20),
+            ElevatedButton(onPressed: _login, child: const Text('LOG IN')),
           ],
         ),
       ),
@@ -56,98 +67,173 @@ class LoginScreen extends StatelessWidget {
   }
 }
 
-// --- ECRÃ DA PROVA (Com Escalão e Formulário) ---
-class ProvaScreen extends StatefulWidget {
-  final String competitionId;
-  const ProvaScreen({super.key, required this.competitionId});
+// --- NAVEGAÇÃO ---
+class MainNavigation extends StatefulWidget {
+  const MainNavigation({super.key});
   @override
-  State<ProvaScreen> createState() => _ProvaScreenState();
+  State<MainNavigation> createState() => _MainNavigationState();
 }
 
-class _ProvaScreenState extends State<ProvaScreen> {
-  String? _escalao;
-  String? _atletaId;
-  final _tempoCtrl = TextEditingController();
-  final _tipoFaltaCtrl = TextEditingController();
-
-  Future<void> _submeterFalta() async {
-    if (_atletaId == null || _tempoCtrl.text.isEmpty || _tipoFaltaCtrl.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preencha tudo!')));
-      return;
-    }
-
-    await FirebaseFirestore.instance.collection('infractions').add({
-      'competition_id': widget.competitionId,
-      'judge_id': FirebaseAuth.instance.currentUser?.uid,
-      'athlete_id': _atletaId,
-      'time': _tempoCtrl.text,
-      'type': _tipoFaltaCtrl.text,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-
-    setState(() {
-      _atletaId = null;
-      _tempoCtrl.clear();
-      _tipoFaltaCtrl.clear();
-    });
-    
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Falta Registada!')));
-  }
+class _MainNavigationState extends State<MainNavigation> {
+  int _selectedIndex = 1; 
+  
+  // --- ALTERAÇÃO: competitionId agora é um INTEIRO (int) ---
+  final int competitionId = 1; 
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Registo em Pista'), actions: [
-        IconButton(icon: const Icon(Icons.logout), onPressed: () => FirebaseAuth.instance.signOut())
-      ]),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            // 1. Escolha do Escalão
-            DropdownButtonFormField<String>(
-              hint: const Text('Escolha o Escalão'),
-              value: _escalao,
-              items: ['Sub-18', 'Sub-20', 'Seniores'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-              onChanged: (val) => setState(() { _escalao = val; _atletaId = null; }),
-            ),
-            const SizedBox(height: 20),
-            
-            // 2. Escolha do Atleta (Dinâmico do Firestore)
-            if (_escalao != null)
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('athletes')
-                    .where('category', isEqualTo: _escalao)
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData) return const CircularProgressIndicator();
-                  return DropdownButtonFormField<String>(
-                    hint: const Text('Selecione o Atleta'),
-                    value: _atletaId,
-                    items: snapshot.data!.docs.map((doc) {
-                      return DropdownMenuItem(value: doc.id, child: Text("${doc['bib_number']} - ${doc['name']}"));
-                    }).toList(),
-                    onChanged: (val) => setState(() => _atletaId = val),
-                  );
-                },
-              ),
-            
-            const SizedBox(height: 20),
-            
-            // 3. Tempo e Tipo
-            TextField(controller: _tempoCtrl, decoration: const InputDecoration(labelText: 'Tempo da Falta (ex: 01:23:45)', border: OutlineInputBorder())),
-            const SizedBox(height: 10),
-            TextField(controller: _tipoFaltaCtrl, decoration: const InputDecoration(labelText: 'Tipo de Falta (ex: Flexão)', border: OutlineInputBorder())),
-            
-            const SizedBox(height: 30),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
-              onPressed: _submeterFalta, 
-              child: const Text('SUBMETER REGISTO'),
-            )
-          ],
-        ),
+      appBar: AppBar(
+        title: const Text('Race Walking System'),
+        actions: [IconButton(icon: const Icon(Icons.logout), onPressed: () => FirebaseAuth.instance.signOut())],
+      ),
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: [
+          const Center(child: Text('HOME PAGE')),
+          NewInfractionScreen(competitionId: competitionId),
+          const Center(child: Text('LISTS PAGE')),
+        ],
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: (index) => setState(() => _selectedIndex = index),
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'HOME'),
+          BottomNavigationBarItem(icon: Icon(Icons.add_circle), label: 'NEW'),
+          BottomNavigationBarItem(icon: Icon(Icons.list), label: 'LISTS'),
+        ],
+      ),
+    );
+  }
+}
+
+// --- ECRÃ DE REGISTO ---
+class NewInfractionScreen extends StatefulWidget {
+  final int competitionId; // Tipo alterado para int
+  const NewInfractionScreen({super.key, required this.competitionId});
+  @override
+  State<NewInfractionScreen> createState() => _NewInfractionScreenState();
+}
+
+class _NewInfractionScreenState extends State<NewInfractionScreen> {
+  final _bibCtrl = TextEditingController();
+  final _timeCtrl = TextEditingController();
+  @override
+  void initState() { super.initState(); _resetTime(); }
+  void _resetTime() { _timeCtrl.text = DateFormat('HH:mm:ss').format(DateTime.now()); }
+
+  Future<void> _confirmAndSend(String type, String category) async {
+    final String bibValue = _bibCtrl.text.trim();
+    final String timeValue = _timeCtrl.text.trim();
+    if (bibValue.isEmpty) return;
+
+    String athleteName = "Atleta Desconhecido";
+    
+    try {
+      // Procura o documento pelo ID (Dorsal)
+      final athleteDoc = await FirebaseFirestore.instance
+          .collection('athletes')
+          .doc(bibValue)
+          .get();
+
+      if (athleteDoc.exists) {
+        final data = athleteDoc.data();
+        
+        // --- COMPARAÇÃO COMO INT ---
+        // Se na Firebase for int64, o Dart lê como int automaticamente.
+        if (data?['competition_id'] == widget.competitionId) {
+          athleteName = data?['name'] ?? "Sem Nome";
+        }
+      }
+    } catch (e) { 
+      print("Erro ao procurar: $e"); 
+    }
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirmar Notificação?'),
+        content: Text('Atleta: $athleteName\nBib: $bibValue\nHora: $timeValue\nTipo: $category ($type)'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCELAR')),
+          ElevatedButton(
+            onPressed: () async {
+              await FirebaseFirestore.instance.collection('infractions').add({
+                'competition_id': widget.competitionId, // Gravado como int
+                'judge_id': FirebaseAuth.instance.currentUser?.uid,
+                'bib_number': bibValue,
+                'athlete_name': athleteName,
+                'time': timeValue,
+                'infraction_type': type,
+                'card_category': category,
+                'timestamp': FieldValue.serverTimestamp(),
+              });
+              if (mounted) {
+                Navigator.pop(context);
+                _bibCtrl.clear();
+                _resetTime();
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('SENT!'), backgroundColor: Colors.green));
+              }
+            },
+            child: const Text('CONFIRMAR'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        children: [
+          TextField(controller: _bibCtrl, decoration: const InputDecoration(labelText: 'BIB NUMBER', border: OutlineInputBorder()), keyboardType: TextInputType.number),
+          const SizedBox(height: 15),
+          TextField(controller: _timeCtrl, decoration: const InputDecoration(labelText: 'TIME', border: OutlineInputBorder())),
+          const SizedBox(height: 30),
+          const Text('YELLOW PADDLES (YP)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          const Divider(),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildCircleButton(Colors.yellow, Colors.black, 'flexao', '>', 'YP'),
+              _buildCircleButton(Colors.yellow, Colors.black, 'contacto', '~', 'YP'),
+            ],
+          ),
+          const SizedBox(height: 40),
+          const Text('RED CARDS (RC)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          const Divider(),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildCircleButton(Colors.red, Colors.white, 'flexao', '>', 'RC'),
+              _buildCircleButton(Colors.red, Colors.white, 'contacto', '~', 'RC'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCircleButton(Color bgColor, Color textColor, String type, String symbol, String category) {
+    return GestureDetector(
+      onTap: () => _confirmAndSend(type, category),
+      child: Column(
+        children: [
+          Container(
+            width: 80, height: 80,
+            decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle, border: Border.all(color: Colors.black, width: 2), boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 4))]),
+            child: Center(child: Text(symbol, style: TextStyle(color: textColor, fontSize: 40, fontWeight: FontWeight.bold))),
+          ),
+          const SizedBox(height: 8),
+          Text(type.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w500)),
+        ],
       ),
     );
   }
